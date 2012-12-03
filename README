@@ -1,0 +1,97 @@
+Name: fedit.c
+Developer: Shamari Feaster
+Email: sf11@my.fsu.edu | alistproducer2@gmail.com
+
+Summary: This is a utility that is used to perform operations on a 
+FAT32 filesystem. The operations include: ls, cd, touch, mkdir, rm, rmdir
+,fopen, fclose, fwrite, fread, as well as some other utility functions.
+My file that is being compiled is proj3-clean.c which is everything in
+one large file. I took a lot of time to break it up into logical section
+but due to my inexperience with make I was not able to get the project to
+compile correctly. I have still included my broken down files as evidence of
+my intention to make the design better. The break down is in /fedit-backup
+of this archive
+
+How to compile: There's a makefile so just type "make" from the command line
+
+How to run: use "./fedit <imagename> [-d]"
+
+Runtime Parameter: -d enables debugging output
+
+Files:
+
+proj3-clean.c - what is being compiled
+
+//-------Logical breakdown --------------------
+fedit.h - includes c libraries used and constants and structures
+
+fedit_bootsector_parsing.h - function to parse the boot sector and return info
+about it
+
+fedit_constants.h - defines constants used throughou the program
+
+fedit_structures.h - defines the file system abstractions used through such
+as file descriptors for the file table or directory entries
+
+fedit_driver_functions.h - argument parsing functions and other miscellany
+
+fedit_filetable.h - defines the data structure used to hold the open file table
+and the directory history as well as function that operat on them
+
+fedit_operations_cluster.h - get/set info related to clusters
+
+fedit_operations_cluster_chain.h - operates on cluster chains, for example allocating
+a new chain or clearing a used one whose file has been deleted
+
+fedit_operations_entry.h - get/sets and writes file entries to the file system
+
+fedit_operations_fat.h - operates on the FAT, getting/setting
+
+fedit_operations_filesystem.h - function that operate on the file system
+such as ls, mkdir, rm, touch, fopen, fclose, ect.
+//---------------------------------------------------
+
+Bonus Attempts:
+Relative and Absolute Paths
+Error checking on all filename inputs
+
+Bonus: 
+
+Currently fedit does not support paths with special directories like:
+../../BLUE but it should be noted the bonus specs did not specifically
+name special sirectory resolution as a requisite.
+		
+However it DOES support paths relative to pwd like: *BONUS*
+rm BLUE/FILE 
+
+and this will go down as many levels as you want. it will print an error
+iff any directory in your path was invalid, telling you th culprit directory
+
+These will also resolve as well:
+ls .
+ls /
+cd . 
+cd ..
+cd /
+
+as well as absolute paths like: *BONUS*
+ls /BLUE/RED/GREEN
+
+
+Idiosyncrasies and Bugs:
+		
+fedit will only accpet UPPERCASE characters for filename input	
+
+fedit will filter all filenames to only accept [A-Z0-9]{1,8} and extentions
+[A-Z0-9]{0,3} *BONUS* This works on any command that accepts a filename as a 
+parameter
+
+In addtition to all the function required to support path resolution I included ls *BONUS*
+
+Although it was not mandated in the specs to write to both FAT, I want to mention that fedit only
+writes to the first FAT
+
+Size does not support special directories (this is not required by the specifications)
+
+Error checking on every attempt open the image, if it fails program exits gracefully
+
