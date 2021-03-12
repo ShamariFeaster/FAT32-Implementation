@@ -217,6 +217,7 @@ int firstClusterSector(struct BS_BPB *bs) {
     return Partition_LBA_Begin + bs->BPB_RsvdSecCnt + (bs->BPB_NumFATs * bs->BPB_SecPerClus);
 }
 
+
  
 //----------------OPEN FILE/DIRECTORY TABLES-----------------
 /* create a new file to be put in the file descriptor table
@@ -637,6 +638,18 @@ uint32_t byteOffsetofDirectoryEntry(struct BS_BPB * bs, uint32_t clusterNum, int
     return (dataAddress + offset);
 }
 
+
+/* description: feed this a cluster that's a member of a chain and this
+ * sets your environment variable "io_writeCluster" to the last in that
+ * chain. The thinking is this is where you'll write in order to grow
+ * that file. before writing to cluster check with FAT_findNextOpenEntry()
+ * to see if there's space or you need to extend the chain using FAT_extendClusterChain()
+ */ 
+int FAT_setIoWriteCluster(struct BS_BPB * bs, uint32_t clusterChainMember) {
+     environment.io_writeCluster = getLastClusterInChain(bs, clusterChainMember);
+     return 0;
+}
+
 /* This is the workhorse. It is used for ls, cd, filesearching. 
  * Directory Functionality:
  * It is used to perform cd, which you use by setting <cd>. if <goingUp> is set it uses 
@@ -897,15 +910,91 @@ int FAT_freeClusterChain(struct BS_BPB * bs,  uint32_t firstClusterOfChain){
     
     }
 
-/* description: feed this a cluster that's a member of a chain and this
- * sets your environment variable "io_writeCluster" to the last in that
- * chain. The thinking is this is where you'll write in order to grow
- * that file. before writing to cluster check with FAT_findNextOpenEntry()
- * to see if there's space or you need to extend the chain using FAT_extendClusterChain()
- */ 
-int FAT_setIoWriteCluster(struct BS_BPB * bs, uint32_t clusterChainMember) {
-     environment.io_writeCluster = getLastClusterInChain(bs, clusterChainMember);
-	 return 0;
+/* description: takes a directory entry and all the necesary info
+    and populates the entry with the info in a correct format for
+    insertion into a disk.
+*/
+int createEntry(struct DIR_ENTRY * entry,
+            const char * filename, 
+            const char * ext,
+            int isDir,
+            uint32_t firstCluster,
+            uint32_t filesize,
+            bool emptyAfterThis,
+            bool emptyDirectory) {
+    //set the same no matter the entry
+    entry->r1 = 0;
+    entry->r2 = 0;
+    entry->crtTime = 0;
+    entry->crtDate = 0;
+    entry->accessDate = 0;
+    entry->lastWrTime = 0;
+    entry->lastWrDate = 0;
+
+    if(emptyAfterThis == FALSE && emptyDirectory == FALSE) { //if both are false
+        int x;
+        for(x = 0; x < MAX_FILENAME_SIZE; x++) {
+            if(x < strlen(filename))
+                entry->filename[x] = filename[x];
+            else
+                entry->filename[x] = ' ';
+        }
+
+        for(x = 0; x < MAX_EXTENTION_SIZE; x++) {
+            if(x < strlen(ext))
+                entry->filename[MAX_FILENAME_SIZE + x] = ext[x];
+            else
+                entry->filename[MAX_FILENAME_SIZE + x] = ' ';
+        }
+        
+        deconstructClusterAddress(entry, firstCluster);
+
+        if(isDir == TRUE) {
+            entry->fileSize = 0;
+            entry->attributes = ATTR_DIRECTORY;
+        } else {
+            entry->fileSize = filesize;
+            entry->attributes = ATTR_ARCHIVE;
+        }
+        return 0; //stops execution so we don't flow out into empty entry config code below
+        
+    } else if(emptyAfterThis == TRUE) { //if this isn't true, then the other must be
+        entry->filename[0] = 0xE5;
+        entry->attributes = 0x00;
+    }else {                             //hence no condition check here
+        entry->filename[0] = 0x00;
+        entry->attributes = 0x00;
+    }
+    
+    //if i made it here we're creating an empty entry and both conditions
+    //require this setup
+    int x;
+    for(x = 1; x < 11; x++) 
+        entry->filename[x] = 0x00;
+    
+    entry->loCluster[0] = 0x00;
+    entry->loCluster[1] = 0x00;
+    entry->hiCluster[0] = 0x00;
+    entry->hiCluster[1] = 0x00;
+    entry->attributes = 0x00;
+    entry->fileSize = 0;
+    
+    return 0;
+}
+
+
+
+/* description: take two entries and cluster info and populates them with 
+ * '.' and '..' entriy information. The entries are ready for writing to 
+ * the disk after this. helper function for mkdir()
+  */
+int makeSpecialDirEntries(struct DIR_ENTRY * dot, 
+                        struct DIR_ENTRY * dotDot,
+                        uint32_t newlyAllocatedCluster,
+                        uint32_t pwdCluster ) {
+    createEntry(dot, ".", "", TRUE, newlyAllocatedCluster, 0, FALSE, FALSE);    
+    createEntry(dotDot, "..", "", TRUE, pwdCluster, 0, FALSE, FALSE);   
+    return 0;
 }
 
 /* description: this will write a new entry to <destinationCluster>. if that cluster
@@ -948,90 +1037,8 @@ int writeFileEntry(struct BS_BPB * bs, struct DIR_ENTRY * entry, uint32_t destin
 
 
 
-/* description: takes a directory entry and all the necesary info
-	and populates the entry with the info in a correct format for
-	insertion into a disk.
-*/
-int createEntry(struct DIR_ENTRY * entry,
-			const char * filename, 
-			const char * ext,
-			int isDir,
-			uint32_t firstCluster,
-			uint32_t filesize,
-            bool emptyAfterThis,
-            bool emptyDirectory) {
-    //set the same no matter the entry
-    entry->r1 = 0;
-	entry->r2 = 0;
-	entry->crtTime = 0;
-	entry->crtDate = 0;
-	entry->accessDate = 0;
-	entry->lastWrTime = 0;
-	entry->lastWrDate = 0;
 
-    if(emptyAfterThis == FALSE && emptyDirectory == FALSE) { //if both are false
-        int x;
-        for(x = 0; x < MAX_FILENAME_SIZE; x++) {
-            if(x < strlen(filename))
-                entry->filename[x] = filename[x];
-            else
-                entry->filename[x] = ' ';
-        }
 
-        for(x = 0; x < MAX_EXTENTION_SIZE; x++) {
-            if(x < strlen(ext))
-                entry->filename[MAX_FILENAME_SIZE + x] = ext[x];
-            else
-                entry->filename[MAX_FILENAME_SIZE + x] = ' ';
-        }
-        
-        deconstructClusterAddress(entry, firstCluster);
-
-        if(isDir == TRUE) {
-            entry->fileSize = 0;
-            entry->attributes = ATTR_DIRECTORY;
-		} else {
-            entry->fileSize = filesize;
-            entry->attributes = ATTR_ARCHIVE;
-		}
-        return 0; //stops execution so we don't flow out into empty entry config code below
-        
-    } else if(emptyAfterThis == TRUE) { //if this isn't true, then the other must be
-        entry->filename[0] = 0xE5;
-        entry->attributes = 0x00;
-    }else {                             //hence no condition check here
-        entry->filename[0] = 0x00;
-        entry->attributes = 0x00;
-    }
-    
-    //if i made it here we're creating an empty entry and both conditions
-    //require this setup
-    int x;
-    for(x = 1; x < 11; x++) 
-        entry->filename[x] = 0x00;
-    
-	entry->loCluster[0] = 0x00;
-    entry->loCluster[1] = 0x00;
-    entry->hiCluster[0] = 0x00;
-    entry->hiCluster[1] = 0x00;
-	entry->attributes = 0x00;
-	entry->fileSize = 0;
-	
-    return 0;
-}
-
-/* description: take two entries and cluster info and populates	them with 
- * '.' and '..' entriy information. The entries are	ready for writing to 
- * the disk after this. helper function for mkdir()
-  */
-int makeSpecialDirEntries(struct DIR_ENTRY * dot, 
-						struct DIR_ENTRY * dotDot,
-						uint32_t newlyAllocatedCluster,
-						uint32_t pwdCluster ) {
-	createEntry(dot, ".", "", TRUE, newlyAllocatedCluster, 0, FALSE, FALSE);	
-	createEntry(dotDot, "..", "", TRUE, pwdCluster, 0, FALSE, FALSE);	
-	return 0;
-}
 
 /* returns offset of the entry, <searchName> in the pwd 
  * if found return the offset, if not return -1 
